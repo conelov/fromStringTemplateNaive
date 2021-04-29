@@ -4,38 +4,32 @@
 
 #ifndef FROMSTRING_FROMSTRING_HPP
 #define FROMSTRING_FROMSTRING_HPP
-
 #include <algorithm>
 
-struct ErrM
+struct ExceptionDescriptor
 {
   const std::errc er;
   const std::string_view what;
 };
 
 template<typename T>
-  requires std::is_arithmetic_v<T> && std::is_same_v<T, std::decay_t<T>>
-constexpr std::pair<ErrM, T> fromString_noexcept(auto &&chars) noexcept
+  requires std::is_same_v<T, std::decay_t<T>> && std::is_integral_v<T> && (!std::is_same_v<T,bool>)
+constexpr std::pair<ExceptionDescriptor, T> fromString_noexcept(auto &&chars) noexcept
 {
   std::basic_string_view sv(std::forward<decltype(chars)>(chars));
   using Char= typename decltype(sv)::value_type;
-  constexpr std::pair<ErrM, T> ErrM_notNum{ { std::errc::invalid_argument, "string not contain a number " }, {} },
+  constexpr auto symbolPlus= Char('+'), symbolMinus= Char('-');
+  constexpr std::pair<ExceptionDescriptor, T> ErrM_notNum{ { std::errc::invalid_argument, "string not contain a number " }, {} },
       ErrM_overflow{ { std::errc::result_out_of_range, "overflow" }, {} };
 
   if (sv.empty())
     return { { std::errc::invalid_argument, "empty string" }, {} };
 
-  /// find first number char or '+'/'-'
-  constexpr auto symbolPlus= Char('+'), symbolMinus= Char('-');
-  auto const itFNum=
-      std::ranges::find_if(sv, [](Char const i) { return std::isdigit(i) || i == symbolPlus || i == symbolMinus; });
-  if (itFNum == sv.cend())
-    return ErrM_notNum;
-  sv.remove_prefix(std::distance(sv.cbegin(), itFNum));
+  sv.remove_prefix(sv.find_first_not_of(Char(' ')));
 
   /// check sign
   bool negateFlag= false;
-  switch (*itFNum) {
+  switch (sv.front()) {
   case symbolMinus: negateFlag= true; [[fallthrough]];
   case symbolPlus:
     sv.remove_prefix(1);
@@ -45,9 +39,10 @@ constexpr std::pair<ErrM, T> fromString_noexcept(auto &&chars) noexcept
   }
 
   T retVal{};
-  /// gdb does not read ! range for form
-  //  for (auto const s : sv)
-  for (auto it= sv.cbegin(); it != sv.cend() && std::isdigit(*it); ++it) {
+  for (auto it= sv.cbegin(); it != sv.cend() && !std::isspace(*it); ++it) {
+    if(!std::isdigit(*it))
+      return ErrM_notNum;
+
     auto const numPart= *it - Char('0');
 
     if (retVal > std::numeric_limits<T>::max() / 10)
@@ -67,7 +62,7 @@ constexpr std::pair<ErrM, T> fromString_noexcept(auto &&chars) noexcept
 template<typename T>
 constexpr T fromString(auto &&sv)
 {
-  switch (std::pair<ErrM, T> const retP= fromString_noexcept<T>(std::forward<decltype(sv)>(sv)); retP.first.er) {
+  switch (std::pair<ExceptionDescriptor, T> const retP= fromString_noexcept<T>(std::forward<decltype(sv)>(sv)); retP.first.er) {
   case std::errc{}: return retP.second;
   case std::errc::invalid_argument: throw std::invalid_argument(retP.first.what.data());
   case std::errc::result_out_of_range: throw std::out_of_range(retP.first.what.data());
@@ -76,3 +71,5 @@ constexpr T fromString(auto &&sv)
 }
 
 #endif // FROMSTRING_FROMSTRING_HPP
+
+/// Use const whenever possible. ⒸScott Meyers
