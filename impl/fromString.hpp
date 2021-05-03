@@ -12,11 +12,10 @@ struct ExceptionDescriptor
   const std::string_view what;
 };
 
-template<typename T>
+template<typename T,typename CharT, typename Traits = std::char_traits<CharT>>
   requires std::is_same_v<T, std::decay_t<T>> && std::is_integral_v<T> && (!std::is_same_v<T,bool>)
-constexpr std::pair<ExceptionDescriptor, T> fromString_noexcept(auto &&chars) noexcept
+constexpr std::pair<ExceptionDescriptor, T> fromString_noexcept(std::basic_string_view<CharT,Traits> sv) noexcept
 {
-  std::basic_string_view sv(std::forward<decltype(chars)>(chars));
   using Char= typename decltype(sv)::value_type;
   constexpr auto symbolPlus= Char('+'), symbolMinus= Char('-');
   constexpr std::pair<ExceptionDescriptor, T> ErrM_notNum{ { std::errc::invalid_argument, "string not contain a number " }, {} },
@@ -60,14 +59,24 @@ constexpr std::pair<ExceptionDescriptor, T> fromString_noexcept(auto &&chars) no
 }
 
 template<typename T>
-constexpr T fromString(auto &&sv)
+constexpr std::pair<ExceptionDescriptor, T> fromString_noexcept(auto&& sv) noexcept{
+  return fromString_noexcept<T>(std::forward<decltype(sv)>(sv));
+}
+
+template<typename T,typename CharT, typename Traits = std::char_traits<CharT>>
+constexpr T fromString(std::basic_string_view<CharT,Traits> sv)
 {
-  switch (std::pair<ExceptionDescriptor, T> const retP= fromString_noexcept<T>(std::forward<decltype(sv)>(sv)); retP.first.er) {
+  switch (std::pair<ExceptionDescriptor, T> const retP= fromString_noexcept<T>(sv); retP.first.er) {
   case std::errc{}: return retP.second;
   case std::errc::invalid_argument: throw std::invalid_argument(retP.first.what.data());
   case std::errc::result_out_of_range: throw std::out_of_range(retP.first.what.data());
   default: throw std::invalid_argument("default statement");
   }
+}
+
+template<typename T>
+constexpr T fromString(auto && sv){
+  return fromString<T>(std::forward<decltype(sv)>(sv));
 }
 
 #endif // FROMSTRING_FROMSTRING_HPP
